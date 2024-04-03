@@ -30,6 +30,18 @@ int is_full(stack_t *stack)
   return stack->top == stack->capacity;
 }
 
+int top(stack_t *s, int *elem)
+{
+  if (is_empty(s))
+  {
+    return 0;
+  }
+
+  *elem = s->buffer[s->top];
+
+  return 1;
+}
+
 void delete_stack(stack_t *s)
 {
   free(s->buffer);
@@ -64,4 +76,14 @@ int pop(stack_t *s, int *elem)
 int get_size(stack_t *stack)
 {
   return stack->top;
+}
+
+int get_elem(stack_t *s, int index, int *elem)
+{
+  if (index < 0 || s->top <= index)
+  {
+    return 0;
+  }
+
+  return s->buffer[index];
 }
