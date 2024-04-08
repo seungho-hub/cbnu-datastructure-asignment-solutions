@@ -3,6 +3,21 @@
 
 int map[8][8] = {0};
 
+typedef enum
+{
+  UP_RIGHT,
+  UP_LEFT,
+  DOWN_RIGHT,
+  DOWN_LEFT,
+  LEFT_UP,
+  LEFT_DOWN,
+  RIGHT_UP,
+  RIGHT_DOWN,
+  DONE
+} dir;
+
+int firstDirection = UP_RIGHT;
+
 int iToI(int i)
 {
   return 8 - i;
@@ -48,51 +63,76 @@ int isInPath(gstack_t *xs, gstack_t *ys, int nx, int ny)
 
 void search(int fromX, int fromY, int toX, int toY)
 {
-  gstack_t *xs = create_stack(400, sizeof(int));
-  gstack_t *ys = create_stack(400, sizeof(int));
-  int moveOffset[8][2] = {{2, 1}, {1, 2}, {-1, 2}, {-2, 1}, {-2, -1}, {-1, -2}, {1, -2}, {2, -1}};
+  gstack_t *xs = create_stack(64, sizeof(int));
+  gstack_t *ys = create_stack(64, sizeof(int));
+  gstack_t *ds = create_stack(64, sizeof(int));
+
+  int moveOffset[8][2] = {
+      {1, -2}, {-1, -2}, // UP RIGHT, LEFT
+      {1, 2},
+      {-1, 2}, // DOWN RIGHT, LEFT
+      {-2, -1},
+      {-2, 1}, // LEFT UP, DOWN
+      {2, 1},
+      {2, -1} // RIGHT UP, DOWN
+  };
+
   push(xs, &fromX);
   push(ys, &fromY);
+  push(ds, &firstDirection);
 
   while (is_empty(xs) == 0)
   {
-    int x;
-    int y;
+    int x, y, d;
 
     printStack(xs, ys);
+    printf("%d", d);
     printf("\n");
 
     pop(xs, &x);
     pop(ys, &y);
+    pop(ds, &d);
 
     // reach to destination
-    if (x == toX || y == toY)
+    if (x == toX && y == toY)
     {
+      printf("reached!");
       for (int i = 0; i < get_size(xs); i++)
       {
-        int x, y;
+        int logX, logY;
+        get_element(xs, i, &logX);
+        get_element(ys, i, &logY);
+
+        printf("%c%d ", iToC(logX), iToI(logY));
       }
 
+      printf("\n");
       return;
     }
 
-    map[y][x] = 1;
-
-    for (int i = 0; i < 8; i++)
+    if (d == DONE)
     {
-      int nextX = x + moveOffset[i][0];
-      int nextY = y + moveOffset[i][1];
+      continue;
+    }
 
-      // out of map
-      if (nextX < 0 || nextY < 0 || nextX > 8 || nextY > 8 || map[nextY][nextX] == 1)
-      {
-        continue;
-      }
-      else
-      {
-        push(xs, &nextX);
-        push(ys, &nextY);
-      }
+    int nextX = x + moveOffset[d][0];
+    int nextY = y + moveOffset[d][1];
+    int nextD = d + 1;
+
+    push(xs, &x);
+    push(ys, &y);
+    push(ds, &nextD);
+
+    // out of map && in path
+    if (nextX < 0 || nextY < 0 || nextX >= 8 || nextY >= 8 || isInPath(xs, ys, nextX, nextY))
+    {
+      continue;
+    }
+    else
+    {
+      push(xs, &nextX);
+      push(ys, &nextY);
+      push(ds, &firstDirection);
     }
   }
 
@@ -106,17 +146,16 @@ int main()
   int fromX, fromY, toX, toY;
   char tempFromX, tempToX;
 
-  // printf("from : ");
-  // scanf(" %c %d", &tempFromX, &fromY);
-  // fromX = cToI(tempFromX);
+  printf("from : ");
+  scanf(" %c %d", &tempFromX, &fromY);
+  fromX = cToI(tempFromX);
 
-  // printf("to : ");
-  // scanf(" %c %d", &tempToX, &toY);
-  // toX = cToI(tempToX);
+  printf("to : ");
+  scanf(" %c %d", &tempToX, &toY);
+  toX = cToI(tempToX);
 
-  // printf("%d %d %d %d", fromX, fromY, toX, toY);
-  // search(fromX, fromY, toX, toY);
+  printf("%d %d %d %d", fromX, fromY, toX, toY);
+  search(fromX, iToI(fromY), toX, iToI(toY));
 
-  search(1, 1, 4, 6);
   return 0;
 }
