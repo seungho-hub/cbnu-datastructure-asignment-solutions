@@ -4,6 +4,7 @@
 #include "gqueue.c"
 #include <stdio.h>
 #include <stdbool.h>
+#include <time.h>
 #include <windows.h>
 #include <stdint.h>
 
@@ -67,6 +68,7 @@ int M, N, K;
 cell_t board[16][16] = {{{0, 0, 0}}};
 
 int checkRemain = 2;
+int jumpRemain = 1;
 
 // { xOffset, yOffSet }
 int nearOffset[8][2] = {
@@ -117,16 +119,19 @@ void showPrompt()
 	printf("Enter the target cell and command to execute\n");
 	printf("\n");
 	printf("Commands:\n");
-	printf("\t open\n");
+	printf("\t open | open x y\n");
 	printf("\t\t You can open the cell, be careful of mines\n");
 	printf("\n");
-	printf("\t flag\n");
+	printf("\t mark | mark x y\n");
 	printf("\t\t You can mark cells suspected of being mines\n");
 	printf("\n");
 	printf("\t check (remain : %d)\n", checkRemain);
 	printf("\t\t You can see the number of incorrect marks\n");
 	printf("\n");
-	printf("\"command\" : ");
+	printf("\t jump (remain : %d)\n", jumpRemain);
+	printf("\t\t Open a cell that is not a mine\n");
+	printf("\n");
+	printf("> ");
 }
 
 void load_board(char *filename)
@@ -159,14 +164,14 @@ void load_board(char *filename)
 		board[y][x].state = closed;
 	}
 
-	for (int i = 0; i < N; i++)
+	for (int y = 0; y < M; y++)
 	{
-		for (int j = 0; j < M; j++)
+		for (int x = 0; x < M; x++)
 		{
-			if (!board[i][j].mined)
+			if (!board[y][x].mined)
 			{
-				board[i][j].num = countNearMine(j, i);
-				board[i][j].state = closed;
+				board[y][x].num = countNearMine(x, y);
+				board[y][x].state = closed;
 			}
 		}
 	}
@@ -182,7 +187,7 @@ int isValidUserInput(char *command, int x, int y)
 }
 int isValidCommand(char *command)
 {
-	if (strcmp(command, "open") && strcmp(command, "flag") && strcmp(command, "check"))
+	if (strcmp(command, "open") && strcmp(command, "mark") && strcmp(command, "check") && strcmp(command, "jump"))
 	{
 		currErrorMessage = "invalid command";
 		return false;
@@ -245,8 +250,18 @@ void draw_board()
 {
 	printf("\n");
 	int x, y;
+
+	SetColor(DARKGRAY);
+	printf("   ");
+	for (int i = 0; i < N; i++)
+	{
+		printf("%d  ", i);
+	}
+	printf("\n");
+
 	for (y = 0; y < M; y++)
 	{
+		printf("%d  ", y);
 		for (x = 0; x < N; x++)
 		{
 			cell_t cell = board[y][x];
@@ -383,7 +398,7 @@ void userOpen(int x, int y)
 	delete_queue(q);
 }
 
-void userFlag(int x, int y)
+void userMark(int x, int y)
 {
 	board[y][x].state = marked;
 }
@@ -394,7 +409,8 @@ void printError(char *message)
 	printf("%s", message);
 	SetColor(WHITE);
 }
-int check()
+
+int countOfIncorrectMark()
 {
 	int result = 0;
 
@@ -411,6 +427,37 @@ int check()
 	}
 
 	return result;
+}
+
+void openAll()
+{
+	for (int y = 0; y < M; y++)
+	{
+		for (int x = 0; x < N; x++)
+		{
+			board[y][x].state = open;
+		}
+	}
+}
+
+void jump()
+{
+	int randomX;
+	int randomY;
+	cell_t randomCell;
+
+	srand(time(NULL));
+
+	// mined이거나, 이미 열렸거나, 닫힌 cell이 아닌경우 적절한 cell이 지정될떄까지 반복한다.
+	while (randomCell.mined || randomCell.state == open || randomCell.state != closed)
+	{
+		randomY = rand() % M;
+		randomX = rand() % N;
+
+		randomCell = board[randomY][randomX];
+	}
+
+	userOpen(randomX, randomY);
 }
 
 void read_execute_userinput()
@@ -438,7 +485,7 @@ void read_execute_userinput()
 		}
 		userOpen(x, y);
 	}
-	else if (strcmp(command, "flag") == 0)
+	else if (strcmp(command, "mark") == 0)
 	{
 		printf("x y : ");
 		scanf("%d %d", &x, &y);
@@ -447,14 +494,14 @@ void read_execute_userinput()
 			printError("[ERROR] : invalid position");
 			return;
 		}
-		userFlag(x, y);
+		userMark(x, y);
 	}
 	else if (strcmp(command, "check") == 0)
 	{
 		if (checkRemain > 0)
 		{
 			SetColor(CYAN);
-			printf("\n\n------ There are (%d) incorrect mark(s) ------\n", check());
+			printf("\n\n------ There are (%d) incorrect mark(s) ------\n", countOfIncorrectMark());
 			SetColor(WHITE);
 			checkRemain--;
 		}
@@ -463,10 +510,20 @@ void read_execute_userinput()
 			printError("You have exhausted all your opportunities to check");
 		}
 	}
-
+	else if (strcmp(command, "jump") == 0)
+	{
+		if (jumpRemain > 0)
+		{
+			jump();
+			jumpRemain--;
+		}
+		else
+		{
+			printError("You have exhausted all your opportunities to jump");
+		}
+	}
 	return;
 }
-
 int main(int argc, char **argv)
 {
 	if (argc != 2)
@@ -483,10 +540,19 @@ int main(int argc, char **argv)
 		read_execute_userinput();
 	}
 
+	openAll();
+	draw_board();
+
 	if (defeated)
 	{
-		draw_board();
+		SetColor(RED);
 		printf("you defeated!");
 	}
+	else
+	{
+		SetColor(GREEN);
+		printf("clear!");
+	}
+
 	return EXIT_SUCCESS;
 }
