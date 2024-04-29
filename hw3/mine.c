@@ -33,17 +33,6 @@ typedef enum Color
 	WHITE = FOREGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE,
 } Color;
 
-void showPrompt()
-{
-	printf("Enter the target cell and command to execute\n");
-	printf("\n");
-	printf("Commands:\n");
-	printf("\t open\n");
-	printf("\t flag\n");
-	printf("\n");
-	printf("\"command x y\" : ");
-}
-
 void SetColor(int8_t ForgC)
 {
 	WORD wColor;
@@ -76,6 +65,8 @@ typedef struct
 int M, N, K;
 
 cell_t board[16][16] = {{{0, 0, 0}}};
+
+int checkRemain = 2;
 
 // { xOffset, yOffSet }
 int nearOffset[8][2] = {
@@ -119,6 +110,23 @@ int countNearMine(int x, int y)
 	}
 
 	return result;
+}
+
+void showPrompt()
+{
+	printf("Enter the target cell and command to execute\n");
+	printf("\n");
+	printf("Commands:\n");
+	printf("\t open\n");
+	printf("\t\t You can open the cell, be careful of mines\n");
+	printf("\n");
+	printf("\t flag\n");
+	printf("\t\t You can mark cells suspected of being mines\n");
+	printf("\n");
+	printf("\t check (remain : %d)\n", checkRemain);
+	printf("\t\t You can see the number of incorrect marks\n");
+	printf("\n");
+	printf("\"command\" : ");
 }
 
 void load_board(char *filename)
@@ -174,7 +182,7 @@ int isValidUserInput(char *command, int x, int y)
 }
 int isValidCommand(char *command)
 {
-	if (strcmp(command, "open") && strcmp(command, "flag"))
+	if (strcmp(command, "open") && strcmp(command, "flag") && strcmp(command, "check"))
 	{
 		currErrorMessage = "invalid command";
 		return false;
@@ -371,11 +379,38 @@ void userOpen(int x, int y)
 			}
 		}
 	}
+
+	delete_queue(q);
 }
 
 void userFlag(int x, int y)
 {
 	board[y][x].state = marked;
+}
+
+void printError(char *message)
+{
+	SetColor(RED);
+	printf("%s", message);
+	SetColor(WHITE);
+}
+int check()
+{
+	int result = 0;
+
+	for (int y = 0; y < M; y++)
+	{
+		for (int x = 0; x < N; x++)
+		{
+			// mark되었지만 mined가 아니라면
+			if (board[y][x].state == marked && !board[y][x].mined)
+			{
+				result++;
+			}
+		}
+	}
+
+	return result;
 }
 
 void read_execute_userinput()
@@ -384,23 +419,49 @@ void read_execute_userinput()
 	char command[16];
 	int x, y;
 	showPrompt();
-	scanf("%15s %d %d", command, &x, &y);
+	scanf("%15s", command);
 
-	if (!isValidUserInput(command, x, y))
+	if (!isValidCommand(command))
 	{
-		SetColor(RED);
-		printf("[ERROR] : invalid input : %s \n", currErrorMessage);
-		SetColor(WHITE);
+		printError("[ERROR] : invalid command");
 		return;
 	}
 
 	if (strcmp(command, "open") == 0)
 	{
+		printf("x y : ");
+		scanf("%d %d", &x, &y);
+		if (!isValidPosition(x, y))
+		{
+			printError("[ERROR] : invalid position");
+			return;
+		}
 		userOpen(x, y);
 	}
 	else if (strcmp(command, "flag") == 0)
 	{
+		printf("x y : ");
+		scanf("%d %d", &x, &y);
+		if (!isValidPosition(x, y))
+		{
+			printError("[ERROR] : invalid position");
+			return;
+		}
 		userFlag(x, y);
+	}
+	else if (strcmp(command, "check") == 0)
+	{
+		if (checkRemain > 0)
+		{
+			SetColor(CYAN);
+			printf("\n\n------ There are (%d) incorrect mark(s) ------\n", check());
+			SetColor(WHITE);
+			checkRemain--;
+		}
+		else
+		{
+			printError("You have exhausted all your opportunities to check");
+		}
 	}
 
 	return;
