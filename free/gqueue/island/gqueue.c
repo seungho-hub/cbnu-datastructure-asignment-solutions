@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include "gqueue.h"
+#include <string.h>
 
 gqueue_t *
 create_queue(int capacity, int unit)
