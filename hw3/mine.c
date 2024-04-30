@@ -1,50 +1,43 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "gqueue.c"
-#include <stdio.h>
-#include <stdbool.h>
 #include <time.h>
-#include <windows.h>
-#include <stdint.h>
+#include "gqueue.h"
 
+// ANSI Color Code
+#define RESET "\033[0m"
+#define BLACK "\033[90m"
+#define RED "\033[91m"
+#define GREEN "\033[92m"
+#define YELLOW "\033[93m"
+#define BLUE "\033[94m"
+#define MAGENTA "\033[95m"
+#define CYAN "\033[96m"
+#define WHITE "\033[97m"
+#define DARKWHITE "\033[37m"
+
+#define COMMAND_OPEN "open"
+#define COMMAND_MARK "mark"
+#define COMMAND_CHECK "check"
+#define COMMAND_JUMP "jump"
+#define COMMAND_GIVEUP "giveup"
+
+void setColor(const char *colorCode);
 int countNearMine(int x, int y);
-int isValidUserInput(char *command, int x, int y);
+void load_board(char *filename);
 int isValidCommand(char *command);
 int isValidPosition(int x, int y);
 int isOutOfMap(int x, int y);
-
-typedef enum Color
-{
-	BLACK = 0,
-	DARKBLUE = FOREGROUND_BLUE,
-	DARKGREEN = FOREGROUND_GREEN,
-	DARKCYAN = FOREGROUND_GREEN | FOREGROUND_BLUE,
-	DARKRED = FOREGROUND_RED,
-	DARKMAGENTA = FOREGROUND_RED | FOREGROUND_BLUE,
-	DARKYELLOW = FOREGROUND_RED | FOREGROUND_GREEN,
-	DARKGRAY = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE,
-	GRAY = FOREGROUND_INTENSITY,
-	BLUE = FOREGROUND_INTENSITY | FOREGROUND_BLUE,
-	GREEN = FOREGROUND_INTENSITY | FOREGROUND_GREEN,
-	CYAN = FOREGROUND_INTENSITY | FOREGROUND_GREEN | FOREGROUND_BLUE,
-	RED = FOREGROUND_INTENSITY | FOREGROUND_RED,
-	MAGENTA = FOREGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_BLUE,
-	YELLOW = FOREGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_GREEN,
-	WHITE = FOREGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE,
-} Color;
-
-void SetColor(int8_t ForgC)
-{
-	WORD wColor;
-	HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
-	CONSOLE_SCREEN_BUFFER_INFO csbi;
-	if (GetConsoleScreenBufferInfo(hStdOut, &csbi))
-	{
-		wColor = (csbi.wAttributes & 0xF0) + (ForgC & 0x0F);
-		SetConsoleTextAttribute(hStdOut, wColor);
-	}
-}
+int is_terminated();
+void draw_board();
+int isReserved(gqueue_t *q, int x, int y);
+void userOpen(int x, int y);
+void userMark(int x, int y);
+void userJump();
+void printError(char *message);
+int countOfIncorrectMark();
+void openAll();
+void read_execute_userinput();
 
 // cell state
 typedef enum
@@ -67,30 +60,43 @@ int M, N, K;
 
 cell_t board[16][16] = {{{0, 0, 0}}};
 
+// 남은 check 횟수
 int checkRemain = 2;
+
+// 남은 jump 횟수
 int jumpRemain = 1;
 
-// { xOffset, yOffSet }
+int defeated = 0;
+
+// error message
+char *currErrorMessage;
+
+// ANSI code로 output의 색상을 변경한다.
+void setColor(const char *colorCode)
+{
+	printf("%s", colorCode);
+}
+
+// 인접한 cell까지의 offset이다. { xOffset, yOffSet }
 int nearOffset[8][2] = {
-		// left
-		{-1, 0},
-		// right
-		{1, 0},
-		// bottom
-		{0, 1},
-		// top
-		{0, -1},
-		// left-top
-		{-1, -1},
-		// right-top
-		{1, -1},
-		// left-bottom
-		{-1, 1},
-		// right-bottom
-		{1, 1}};
+	// left
+	{-1, 0},
+	// right
+	{1, 0},
+	// bottom
+	{0, 1},
+	// top
+	{0, -1},
+	// left-top
+	{-1, -1},
+	// right-top
+	{1, -1},
+	// left-bottom
+	{-1, 1},
+	// right-bottom
+	{1, 1}};
 
-int defeated = false;
-
+// 인접한 mined cell의 개수를 반환한다.
 int countNearMine(int x, int y)
 {
 	int result = 0;
@@ -114,22 +120,25 @@ int countNearMine(int x, int y)
 	return result;
 }
 
+// prompt를 보여준다.
 void showPrompt()
 {
-	printf("Enter the target cell and command to execute\n");
 	printf("\n");
 	printf("Commands:\n");
 	printf("\t open | open x y\n");
 	printf("\t\t You can open the cell, be careful of mines\n");
 	printf("\n");
 	printf("\t mark | mark x y\n");
-	printf("\t\t You can mark cells suspected of being mines\n");
+	printf("\t\t You can mark or unmark cell\n");
 	printf("\n");
 	printf("\t check (remain : %d)\n", checkRemain);
 	printf("\t\t You can see the number of incorrect marks\n");
 	printf("\n");
 	printf("\t jump (remain : %d)\n", jumpRemain);
 	printf("\t\t Open a cell that is not a mine\n");
+	printf("\n");
+	printf("\t giveup\n");
+	printf("\t\t giveup game\n");
 	printf("\n");
 	printf("> ");
 }
@@ -150,6 +159,7 @@ void load_board(char *filename)
 		exit(EXIT_FAILURE);
 	}
 
+	// mined cell을 file로부터 입력받는다.
 	for (int i = 0; i < K; i++)
 	{
 		int x, y;
@@ -159,19 +169,21 @@ void load_board(char *filename)
 			exit(EXIT_FAILURE);
 		}
 
+		// mined로 표기한다.
+		// cell의 state는 default인 0 즉, closed 상태다.
 		board[y][x].mined = 1;
-		board[y][x].num = 0;
-		board[y][x].state = closed;
 	}
 
+	// non-mined cell에 인접한 mine의 수를 표기한다.
 	for (int y = 0; y < M; y++)
 	{
 		for (int x = 0; x < M; x++)
 		{
+			// mined가 아니라면
 			if (!board[y][x].mined)
 			{
+				// 인접한 mine의 개수를 저장한다.
 				board[y][x].num = countNearMine(x, y);
-				board[y][x].state = closed;
 			}
 		}
 	}
@@ -179,21 +191,16 @@ void load_board(char *filename)
 	fclose(fp);
 }
 
-char *currErrorMessage;
-
-int isValidUserInput(char *command, int x, int y)
-{
-	return isValidCommand(command) && isValidPosition(x, y);
-}
+// 유효한 command 즉,
 int isValidCommand(char *command)
 {
-	if (strcmp(command, "open") && strcmp(command, "mark") && strcmp(command, "check") && strcmp(command, "jump"))
+	if (strcmp(command, COMMAND_OPEN) && strcmp(command, COMMAND_MARK) && strcmp(command, COMMAND_CHECK) && strcmp(command, COMMAND_JUMP) && strcmp(command, COMMAND_GIVEUP))
 	{
 		currErrorMessage = "invalid command";
-		return false;
+		return 0;
 	}
 
-	return true;
+	return 1;
 }
 int isValidPosition(int x, int y)
 {
@@ -201,31 +208,31 @@ int isValidPosition(int x, int y)
 	if (isOutOfMap(x, y))
 	{
 		currErrorMessage = "target cell is out of map";
-		return false;
+		return 0;
 	}
 
-	// already opened
+	// 이미 열려있다면 아무런 작동도하지 못한다.
 	if (board[y][x].state == open)
 	{
 		currErrorMessage = "target cell already opened";
-		return false;
+		return 0;
 	}
 
-	return true;
+	return 1;
 }
 int isOutOfMap(int x, int y)
 {
-	return ((x < 0 || x >= N) || (y < 0 || y >= M)) ? true : false;
+	return ((x < 0 || x >= N) || (y < 0 || y >= M)) ? 1 : 0;
 }
 
 int is_terminated()
 {
 	// mine을 click했으면 게임은 종료된다.
 	if (defeated)
-		return true;
+		return 1;
 
 	// 모든 cell이 열렸으면 게임은 종료된다.
-	int allOpened = true;
+	int allOpened = 1;
 
 	for (int y = 0; y < M; y++)
 	{
@@ -234,73 +241,85 @@ int is_terminated()
 			// 닫힌 상태고, mined가 아니라면 열려야하 cell이 있는 것이다.
 			if (board[y][x].state == closed && !board[y][x].mined)
 			{
-				allOpened = false;
+				allOpened = 0;
 			}
 		}
 	}
 
 	if (allOpened)
-		return true;
+		return 1;
 
 	// mine을 클릭하지도 않았고, 모든 cell이 열리지 않았으면 게임은 종료되지 않는다.
-	return false;
+	return 0;
 }
 
 void draw_board()
 {
 	printf("\n");
+	printf("\n");
 	int x, y;
 
-	SetColor(DARKGRAY);
 	printf("   ");
+	setColor(DARKWHITE);
+	// x축의 index를 보여준다.
 	for (int i = 0; i < N; i++)
 	{
 		printf("%d  ", i);
 	}
+
 	printf("\n");
 
 	for (y = 0; y < M; y++)
-	{
+	{ // y 축의 index를 보여준다.
+		setColor(DARKWHITE);
 		printf("%d  ", y);
+
+		//
 		for (x = 0; x < N; x++)
 		{
 			cell_t cell = board[y][x];
 
 			switch (cell.state)
 			{
+				// close 라면 #
 			case (closed):
-				SetColor(YELLOW);
+				setColor(YELLOW);
 				printf("#");
 				break;
+				// marked라면 M
 			case (marked):
-				SetColor(MAGENTA);
-				printf("F");
+				setColor(MAGENTA);
+				printf("M");
 				break;
+				// open이라면
 			case (open):
+				// mineded cell인경우 X
 				if (cell.mined)
 				{
-					SetColor(RED);
+					setColor(RED);
 					printf("X");
 					break;
 				}
+				// non-minded cell이라면 인접한 mine의 개수를 출력
 				else
 				{
+					// 숫자에 따라 색상 변경하기 위해
 					switch (cell.num)
 					{
 					case 0:
-						SetColor(WHITE);
+						setColor(WHITE);
 						printf(" ");
 						break;
 					case 1:
-						SetColor(BLUE);
+						setColor(BLUE);
 						printf("%d", cell.num);
 						break;
 					case 2:
-						SetColor(GREEN);
+						setColor(GREEN);
 						printf("%d", cell.num);
 						break;
 					case 3:
-						SetColor(RED);
+						setColor(RED);
 						printf("%d", cell.num);
 						break;
 					}
@@ -309,11 +328,12 @@ void draw_board()
 			printf("  ");
 		}
 		printf("\n");
-		SetColor(WHITE);
 	}
+	setColor(RESET);
 	printf("\n");
 }
 
+// 이미 탐색이 예약되어있다면
 int isReserved(gqueue_t *q, int x, int y)
 {
 	int temp[2];
@@ -324,19 +344,20 @@ int isReserved(gqueue_t *q, int x, int y)
 
 		if (temp[0] == x && temp[1] == y)
 		{
-			return true;
+			return 1;
 		}
 	}
 
-	return false;
+	return 0;
 }
-// user가 선택한 cell을 open한다.
+
+// cell을 open한다.
 void userOpen(int x, int y)
 {
 	// mine이라면 종료한다.
 	if (board[y][x].mined)
 	{
-		defeated = true;
+		defeated = 1;
 		board[y][x].state = open;
 		return;
 	}
@@ -372,23 +393,9 @@ void userOpen(int x, int y)
 				int nearY = temp[1] + nearOffset[i][1];
 				int nearCell[2] = {nearX, nearY};
 
-				// 이미 enqueue된 cell이라면 pass
-				if (isReserved(q, nearX, nearY))
-				{
+				// 이미 탐색이 예정된 cell이거나, 맵을 벗어났거나, 이미 열려있는 상태라면 패스한다.
+				if (isReserved(q, nearX, nearY) || isOutOfMap(nearX, nearY) || board[nearY][nearX].state == open)
 					continue;
-				}
-
-				// 맵을 벗어난다면 pass
-				if (isOutOfMap(nearX, nearY))
-				{
-					continue;
-				}
-
-				// 이미 open된 cell이라면 pass
-				if (board[nearY][nearX].state == open)
-				{
-					continue;
-				}
 
 				enqueue(q, nearCell);
 			}
@@ -400,16 +407,43 @@ void userOpen(int x, int y)
 
 void userMark(int x, int y)
 {
-	board[y][x].state = marked;
+	// 열려있는 상태의 cell은 앞단계의 position validation check에서 block된다.
+	// mark되어있는 상태라면 close로 되돌리고, marked되어있지 않은 상태라면 closed상태다. marking 해준다.
+	board[y][x].state = board[y][x].state == marked ? closed : marked;
 }
 
+// non-minded cell 하나를 open한다.
+void userJump()
+{
+	int randomX;
+	int randomY;
+	cell_t randomCell;
+
+	// random value를 위한 seed
+	srand(time(NULL));
+
+	// mined이거나, 이미 열렸거나, 닫힌 cell이 아닌경우 적절한 cell이 지정될떄까지 반복한다.
+	while (randomCell.mined || randomCell.state == open || randomCell.state != closed)
+	{
+		randomY = rand() % M;
+		randomX = rand() % N;
+
+		randomCell = board[randomY][randomX];
+	}
+
+	userOpen(randomX, randomY);
+}
+
+// 빨간 텍스트를 출력한다.
+// 많이 사용되어서 빼놨다.
 void printError(char *message)
 {
-	SetColor(RED);
+	setColor(RED);
 	printf("%s", message);
-	SetColor(WHITE);
+	setColor(WHITE);
 }
 
+//
 int countOfIncorrectMark()
 {
 	int result = 0;
@@ -429,6 +463,8 @@ int countOfIncorrectMark()
 	return result;
 }
 
+// cell들을 모두연다.
+// 게임이 종료되었을 떄만 사용된다.
 void openAll()
 {
 	for (int y = 0; y < M; y++)
@@ -440,42 +476,26 @@ void openAll()
 	}
 }
 
-void jump()
-{
-	int randomX;
-	int randomY;
-	cell_t randomCell;
-
-	srand(time(NULL));
-
-	// mined이거나, 이미 열렸거나, 닫힌 cell이 아닌경우 적절한 cell이 지정될떄까지 반복한다.
-	while (randomCell.mined || randomCell.state == open || randomCell.state != closed)
-	{
-		randomY = rand() % M;
-		randomX = rand() % N;
-
-		randomCell = board[randomY][randomX];
-	}
-
-	userOpen(randomX, randomY);
-}
-
 void read_execute_userinput()
 {
 	/* FIXME*/
 	char command[16];
 	int x, y;
 	showPrompt();
+
+	// command를 먼저 입력받는다.
+	// command와 argument들을 동시에 입력해도 된다.
 	scanf("%15s", command);
 
+	// 유효한 command가 아니라면
 	if (!isValidCommand(command))
 	{
 		printError("[ERROR] : invalid command");
 		return;
 	}
 
-	if (strcmp(command, "open") == 0)
-	{
+	if (strcmp(command, COMMAND_OPEN) == 0)
+	{	
 		printf("x y : ");
 		scanf("%d %d", &x, &y);
 		if (!isValidPosition(x, y))
@@ -485,7 +505,7 @@ void read_execute_userinput()
 		}
 		userOpen(x, y);
 	}
-	else if (strcmp(command, "mark") == 0)
+	else if (strcmp(command, COMMAND_MARK) == 0)
 	{
 		printf("x y : ");
 		scanf("%d %d", &x, &y);
@@ -496,13 +516,13 @@ void read_execute_userinput()
 		}
 		userMark(x, y);
 	}
-	else if (strcmp(command, "check") == 0)
+	else if (strcmp(command, COMMAND_CHECK) == 0)
 	{
 		if (checkRemain > 0)
 		{
-			SetColor(CYAN);
+			setColor(CYAN);
 			printf("\n\n------ There are (%d) incorrect mark(s) ------\n", countOfIncorrectMark());
-			SetColor(WHITE);
+			setColor(WHITE);
 			checkRemain--;
 		}
 		else
@@ -510,11 +530,11 @@ void read_execute_userinput()
 			printError("You have exhausted all your opportunities to check");
 		}
 	}
-	else if (strcmp(command, "jump") == 0)
+	else if (strcmp(command, COMMAND_JUMP) == 0)
 	{
 		if (jumpRemain > 0)
 		{
-			jump();
+			userJump();
 			jumpRemain--;
 		}
 		else
@@ -522,8 +542,14 @@ void read_execute_userinput()
 			printError("You have exhausted all your opportunities to jump");
 		}
 	}
+	else if (strcmp(command, COMMAND_GIVEUP) == 0)
+	{
+		defeated = 1;
+	}
+
 	return;
 }
+
 int main(int argc, char **argv)
 {
 	if (argc != 2)
@@ -540,17 +566,20 @@ int main(int argc, char **argv)
 		read_execute_userinput();
 	}
 
+	// 게임이 어떻게 종료되었든 모든 cell을 열어 보여준다.
 	openAll();
 	draw_board();
 
+	// 패배한 경우라면
 	if (defeated)
 	{
-		SetColor(RED);
+		setColor(RED);
 		printf("you defeated!");
 	}
+	// 클리어한 경우라면
 	else
 	{
-		SetColor(GREEN);
+		setColor(GREEN);
 		printf("clear!");
 	}
 
